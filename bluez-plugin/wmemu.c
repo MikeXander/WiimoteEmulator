@@ -1,6 +1,6 @@
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif
+//#ifdef HAVE_CONFIG_H  // I needed to comment this out
+//#include <config.h>   // because it tried to include
+//#endif                // the config no matter what
 
 #include <stdbool.h>
 
@@ -13,8 +13,7 @@
 #include "src/log.h"
 
 static ssize_t wmemu_pincb(struct btd_adapter *adapter, struct btd_device *device,
-						char *pinbuf, bool *display,
-						unsigned int attempt)
+						char *pinbuf, gboolean *display)
 {
 	//force Wii pin (bdaddr bytes backwards)
 	//very basic, no filtering, does this for all devices
