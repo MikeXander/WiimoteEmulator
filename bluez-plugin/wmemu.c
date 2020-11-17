@@ -49,5 +49,5 @@ static void wmemu_exit(void)
 	btd_unregister_adapter_driver(&wmemu_driver);
 }
 
-BLUETOOTH_PLUGIN_DEFINE(wmemu, VERSION,
+BLUETOOTH_PLUGIN_DEFINE(wmemu, __VERSION__,
 		BLUETOOTH_PLUGIN_PRIORITY_LOW, wmemu_init, wmemu_exit)

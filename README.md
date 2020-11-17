@@ -14,7 +14,11 @@ Emulates a Bluetooth Wii controller in software.
 
 ## How?
 
-### Build/Install
+### Step 0: Build/Install
+
+To set everything up quickly run the build script with the command `chmod +x build.sh && ./build.sh`. Once that's done, move `bluez-4.101/plugins/wmemu.so` to the Bluez plugin directory (`/usr/local/lib/bluetooth/plugins` or similar) and restart the bluetooth service.
+
+Alternatively, you can follow the original build instructions below
 
 The following dependencies/packages are required:
 
@@ -22,7 +26,7 @@ The following dependencies/packages are required:
   - libglib2.0-dev
   - libsdl1.2-dev
 
-Additionally, bluez-4.101 is required (newer versions currently don't work).
+Additionally, bluez-4.101 is required (newer versions currently don't work). You will first need to uninstall Bluez if you have a more recent version.
 
 To build the emulator, run the makefile in the source directory. In order to
 connect to the Wii, a plugin must be installed that allows pairing using non
@@ -31,7 +35,7 @@ bluez-4.101/plugins folder of the Bluez source and run the makefile in that
 directory. Copy the output wmemu.so file to the Bluez installation's plugins
 directory (e.g. /usr/lib/bluetooth/plugins) and restart the bluetooth service.
 
-TODO: Friendlier directions for different distros/targets, prebuilt binaries
+TODO: prebuilt binaries
 
 ### Step 1: Determine Wiimote Address
 
