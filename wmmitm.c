@@ -491,6 +491,7 @@ int main(int argc, char *argv[])
       if (out_buf_len == 0 && (pfd[5].revents & POLLIN))
       {
         out_buf_len = recv(int_fd, out_buf, 32, MSG_DONTWAIT);
+        store_extension_key(out_buf, out_buf_len);
         print_report(out_buf, out_buf_len);
       }
       if (pfd[5].revents & POLLOUT)
@@ -521,7 +522,7 @@ int main(int argc, char *argv[])
     {
       in_buf_len = recv(wm_int_fd, in_buf, 32, MSG_DONTWAIT);
       //printf("%02X %02X wm_int_fd\n", in_buf[0], in_buf[1]);
-      //print_report(in_buf, in_buf_len);
+      print_report(in_buf, in_buf_len);
       visualize_inputs(in_buf, in_buf_len);
     }
     if (out_buf_len > 0 && (pfd[7].revents & POLLOUT))

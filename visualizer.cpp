@@ -78,16 +78,16 @@ class Button {
 		enum Mode{Fill, Negative, Dark};
 		Button(std::string name, Mode m) : pressed{nullptr}, released{nullptr}, x{0}, y{0} {
 			if (m == Fill) {
-				released = new Texture(name + "-pressed-fill.png");
+				pressed = new Texture(name + "-pressed-fill.png");
 			} else if (m == Negative) {
-				released = new Texture(name + "-pressed-negative.png");
+				pressed = new Texture(name + "-pressed-negative.png");
 			} else if (m == Dark) {
-				released = new Texture(name + "-pressed-dark.png");			
+				pressed = new Texture(name + "-pressed-dark.png");			
 			} else {
 				std::cerr << "Invalid colour mode loading " << name << std::endl;
 				return;
 			}
-			pressed = new Texture(name + "-outline.png");
+			released = new Texture(name + "-outline.png");
 		}
 		
 		void press(int R = 0xFF, int G = 0xFF, int B = 0xFF) { 
@@ -251,11 +251,11 @@ void parse_report(struct visuals *v, const uint8_t *buf, const uint8_t *key) {
             v->ir[1] += buf[11 + i * 5] + ((buf[9 + i * 5] & 0x0C) << 8);
         }
         // ((data[i] ^ key[8 + i]) + key[i]) % 0x100
-        v->stick[0] = ((buf[17] ^ key[8]) + key[8]) % 0x100;
-        v->stick[1] = ((buf[18] ^ key[9]) + key[9]) % 0x100;
-        uint8_t decrypted_final = ((buf[22] & key[13]) + key[13]) % 0x100;
-        v->Z = decrypted_final & 0x1;
-        v->C = decrypted_final & 0x2;
+        v->stick[0] = ((buf[17] ^ key[8]) + key[0]) % 0x100;
+        v->stick[1] = ((buf[18] ^ key[9]) + key[1]) % 0x100;
+        uint8_t decrypted_final = ((buf[22] & key[13]) + key[5]) % 0x100;
+        v->Z = (decrypted_final & 0x1) == 0;
+        v->C = (decrypted_final & 0x2) == 0;
     }
     clamp_ir(v);
 	clamp_acc(v);
@@ -295,11 +295,70 @@ void print_inputs(struct visuals *v) {
     printf("\n");
 }
 
+uint8_t extension_decryption_key[16] = {0x0};
+uint8_t temp_key[12] = {0x0};
+enum KeyState {Uninitialized, EncryptionEnabled, Block1, Block2, Complete};
+int state = Uninitialized;
+
+// https://wiibrew.org/wiki/Wiimote/Protocol#Extension_Controllers
+void store_extension_key(const uint8_t *buf, int len) { // output report (from wii) buf[0]=a2
+	if (len < 1 + 6 + 16) return; // a2 16 MM FF FF FF SS + key
+	if (state == Uninitialized) printf("%02X %02X %02X %02X %02X %02X\n", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+	if (buf[1] != 0x16) return; // write memory register
+	if (buf[2] != 0x04) return; // enable write data
+	if (buf[3] != 0xA4 || buf[4] != 0x00) return; // register choice
+	if (state == Uninitialized) {
+		if (buf[5] == 0xF0 && buf[6] == 0x01 && buf[7] == 0xAA) {
+			state = EncryptionEnabled;
+			printf("ENABLE ENCRYPTION\n");
+		}
+	} else if (state == EncryptionEnabled) {
+		if (buf[5] == 0x40 && buf[6] == 0x06) {
+			temp_key[0] = buf[7];
+			temp_key[1] = buf[8];
+			temp_key[2] = buf[9];
+			temp_key[3] = buf[10];
+			temp_key[4] = buf[11];
+			temp_key[5] = buf[12];
+			state = Block1;
+			printf("KEY BLOCK1\n");
+		} else {
+			state = Uninitialized;
+		}
+	} else if (state == Block1) {
+		if (buf[5] == 0x46 && buf[6] == 0x06) {
+			temp_key[6] = buf[7];
+			temp_key[7] = buf[8];
+			temp_key[8] = buf[9];
+			temp_key[9] = buf[10];
+			temp_key[10] = buf[11];
+			temp_key[11] = buf[12];
+			state = Block2;
+			printf("KEY BLOCK2\n");
+		} else {
+			state = Uninitialized;
+		}
+	} else if (state == Block2) {
+		if (buf[5] == 0x4C && buf[6] == 0x04) {
+			memcpy(extension_decryption_key, temp_key, sizeof(uint8_t)*12);
+			extension_decryption_key[12] = buf[7];
+			extension_decryption_key[13] = buf[8];
+			extension_decryption_key[14] = buf[9];
+			extension_decryption_key[15] = buf[10];
+			state = Uninitialized; // allow it to check again
+			printf("KEY COMPLETE\n");
+			for (int i = 0; i < 8; ++i) printf("%02X ", extension_decryption_key[i]);
+			printf("\n");
+			for (int i = 8; i < 16; ++i) printf("%02X ", extension_decryption_key[i]);
+			printf("\n");
+		}
+	}
+}
+
 void visualize_inputs_console(const uint8_t *buf, int len) {//, const unit8_t *key) {
     if (!is_input_report(buf, len)) return;
     struct visuals v;
-    uint8_t key[16] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    parse_report(&v, buf, key);
+    parse_report(&v, buf, extension_decryption_key);
     print_inputs(&v);
 }
 
@@ -355,9 +414,9 @@ void visualize_inputs(const uint8_t *buf, int len) {
 	}
 	// change rendered textures depending on changes in input
 	//SDL_RenderCopy(gRenderer, texture, NULL, NULL);
-	uint8_t key[16] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-	//visualize_inputs_console(buf, len);
-    if (is_input_report(buf, len)) parse_report(&wm->v, buf, key);
+
+	visualize_inputs_console(buf, len);
+	if (is_input_report(buf, len)) parse_report(&wm->v, buf, extension_decryption_key);
 	//all_on(&wm->v);
 
 	SDL_SetRenderDrawColor(gRenderer, 0x00, 0x00, 0x00, 0xFF);
