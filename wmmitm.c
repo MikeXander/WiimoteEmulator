@@ -17,6 +17,7 @@
 #include "sdp.h"
 #include "adapter.h"
 #include "wm_print.h"
+#include "visualizer.h"
 
 #define PSM_SDP 1
 #define PSM_CTRL 0x11
@@ -371,6 +372,8 @@ int main(int argc, char *argv[])
       printf("listening for host connections... (press wii's sync button)\n");
     }
   }
+  
+  init_visualizer();
 
   while (running)
   {
@@ -495,6 +498,7 @@ int main(int argc, char *argv[])
         if (in_buf_len > 0)
         {
           send(int_fd, in_buf, in_buf_len, MSG_DONTWAIT);
+          //printf("%02X %02X int_fd\n", in_buf[0], in_buf[1]);
           in_buf_len = 0;
         }
 
@@ -516,7 +520,9 @@ int main(int argc, char *argv[])
     if (in_buf_len == 0 && (pfd[7].revents & POLLIN))
     {
       in_buf_len = recv(wm_int_fd, in_buf, 32, MSG_DONTWAIT);
-      print_report(in_buf, in_buf_len);
+      //printf("%02X %02X wm_int_fd\n", in_buf[0], in_buf[1]);
+      //print_report(in_buf, in_buf_len);
+      visualize_inputs(in_buf, in_buf_len);
     }
     if (out_buf_len > 0 && (pfd[7].revents & POLLOUT))
     {
@@ -537,6 +543,7 @@ int main(int argc, char *argv[])
       }
     }
   }
+  exit_visualizer();
 
   printf("cleaning up...\n");
 
