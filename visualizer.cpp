@@ -6,6 +6,7 @@
 #include <SDL2/SDL_image.h>
 #endif
 
+#include "wm_crypto.h"
 #include <string>
 #include <cstring>
 #include <iostream>
@@ -187,6 +188,8 @@ class WiimoteLayout {
 				if (v.LEFT) left.render(dpx, dpy);
 				if (v.RIGHT) right.render(dpx, dpy);
 				joystick.render(jx, jy);
+				v.stick[0] = (v.stick[0] - 128)/2;
+				v.stick[1] = (127 - v.stick[1])/2;
 				DrawStick(jx+joystick.width/2,jy+joystick.height/2,v.stick[0],v.stick[1],3);
 			} else {
 				if (v.A) { A.press(); } else { A.release(); }
@@ -201,6 +204,8 @@ class WiimoteLayout {
 };
 
 void clamp_ir(struct visuals *v) {
+    v->ir[0] /= 4;
+    v->ir[1] /= 4;
     if (v->ir[0] < 0) v->ir[0] = 0;
     if (v->ir[1] < 0) v->ir[1] = 0;
     if (v->ir[0] > 1024) v->ir[0] = 1024;
@@ -224,7 +229,8 @@ void normalize_joystick(struct visuals *v) {
 
 // assumes it's given an expected report
 // key length = 16
-void parse_report(struct visuals *v, const uint8_t *buf, const uint8_t *key) {
+void parse_report(struct visuals *v, const uint8_t *buf, struct ext_crypto_state* key) {
+    //for (int i = 0; i < 16; ++i) printf("%02X ", key[i]);
     v->LEFT = buf[2] & 0x01;
     v->RIGHT = buf[2] & 0x02;
     v->DOWN = buf[2] & 0x04;
@@ -251,15 +257,21 @@ void parse_report(struct visuals *v, const uint8_t *buf, const uint8_t *key) {
             v->ir[1] += buf[11 + i * 5] + ((buf[9 + i * 5] & 0x0C) << 8);
         }
         // ((data[i] ^ key[8 + i]) + key[i]) % 0x100
-        v->stick[0] = ((buf[17] ^ key[8]) + key[0]) % 0x100;
-        v->stick[1] = ((buf[18] ^ key[9]) + key[1]) % 0x100;
-        uint8_t decrypted_final = ((buf[22] & key[13]) + key[5]) % 0x100;
+        uint8_t ext_data[6] = {0};
+        memcpy(ext_data, buf+17, sizeof(uint8_t)*6);
+        ext_decrypt_bytes(key, ext_data, 0, 6);
+        v->stick[0] = ext_data[0];//((buf[17] ^ key[8]) + key[0]) % 0x100;
+        v->stick[1] = ext_data[1];//((buf[18] ^ key[9]) + key[1]) % 0x100;
+        //printf("<- key\nbuf[17..22] = %02X %02X %02X %02X %02X %02X\n", buf[17], buf[18], buf[19], buf[20], buf[21], buf[22]);
+        uint8_t decrypted_final = ext_data[5];//((buf[22] ^ key[13]) + key[5]) % 0x100;
+        //printf("%02X ^ %02X + %02X\n", buf[22], key[13], key[5]);
+        //printf("DECRYPTED BYTES: %02X %02X %02X\n", v->stick[0], v->stick[1], decrypted_final);
         v->Z = (decrypted_final & 0x1) == 0;
         v->C = (decrypted_final & 0x2) == 0;
     }
     clamp_ir(v);
 	clamp_acc(v);
-	normalize_joystick(v);
+	//normalize_joystick(v);
 }
 
 // returns true if the report is either nunchuk data or no extension w/IR
@@ -297,13 +309,14 @@ void print_inputs(struct visuals *v) {
 
 uint8_t extension_decryption_key[16] = {0x0};
 uint8_t temp_key[12] = {0x0};
+struct ext_crypto_state decrypt_state = {{0}, {0}};
 enum KeyState {Uninitialized, EncryptionEnabled, Block1, Block2, Complete};
 int state = Uninitialized;
 
 // https://wiibrew.org/wiki/Wiimote/Protocol#Extension_Controllers
 void store_extension_key(const uint8_t *buf, int len) { // output report (from wii) buf[0]=a2
 	if (len < 1 + 6 + 16) return; // a2 16 MM FF FF FF SS + key
-	if (state == Uninitialized) printf("%02X %02X %02X %02X %02X %02X\n", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+	if (state == Uninitialized) printf("Out Report: %02X %02X %02X %02X %02X %02X...\n", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
 	if (buf[1] != 0x16) return; // write memory register
 	if (buf[2] != 0x04) return; // enable write data
 	if (buf[3] != 0xA4 || buf[4] != 0x00) return; // register choice
@@ -311,6 +324,11 @@ void store_extension_key(const uint8_t *buf, int len) { // output report (from w
 		if (buf[5] == 0xF0 && buf[6] == 0x01 && buf[7] == 0xAA) {
 			state = EncryptionEnabled;
 			printf("ENABLE ENCRYPTION\n");
+		} else if (buf[5] == 0x40 && buf[6] == 16) { // idk if the wii ever does this?
+			memcpy(extension_decryption_key, buf+7, sizeof(uint8_t)*16);
+			for (int i = 0; i < 16; ++i) printf("%02X ", extension_decryption_key[i]);
+			printf("<- KEY COMPLETE\n");
+			ext_generate_tables(&decrypt_state, buf+7);
 		}
 	} else if (state == EncryptionEnabled) {
 		if (buf[5] == 0x40 && buf[6] == 0x06) {
@@ -346,19 +364,27 @@ void store_extension_key(const uint8_t *buf, int len) { // output report (from w
 			extension_decryption_key[14] = buf[9];
 			extension_decryption_key[15] = buf[10];
 			state = Uninitialized; // allow it to check again
-			printf("KEY COMPLETE\n");
-			for (int i = 0; i < 8; ++i) printf("%02X ", extension_decryption_key[i]);
-			printf("\n");
-			for (int i = 8; i < 16; ++i) printf("%02X ", extension_decryption_key[i]);
-			printf("\n");
+			for (int i = 0; i < 16; ++i) printf("%02X ", extension_decryption_key[i]);
+			printf("<- KEY COMPLETE\n");
+			ext_generate_tables(&decrypt_state, extension_decryption_key);
 		}
 	}
 }
 
+//int extkeycounter = 0;
 void visualize_inputs_console(const uint8_t *buf, int len) {//, const unit8_t *key) {
     if (!is_input_report(buf, len)) return;
     struct visuals v;
-    parse_report(&v, buf, extension_decryption_key);
+    parse_report(&v, buf, &decrypt_state);
+    for (int i = 0; i < len; ++i) printf("%02X", buf[i]);
+    printf(" ");
+    /*printf("=> ");
+    if (++extkeycounter == 50) {
+    	extkeycounter = 0;
+    	printf("( ");
+    	for (int i = 0; i < 16; ++i) printf("%02X ", extension_decryption_key[i]);
+    	printf(") ");
+    }*/
     print_inputs(&v);
 }
 
@@ -416,7 +442,7 @@ void visualize_inputs(const uint8_t *buf, int len) {
 	//SDL_RenderCopy(gRenderer, texture, NULL, NULL);
 
 	visualize_inputs_console(buf, len);
-	if (is_input_report(buf, len)) parse_report(&wm->v, buf, extension_decryption_key);
+	if (is_input_report(buf, len)) parse_report(&wm->v, buf, &decrypt_state);
 	//all_on(&wm->v);
 
 	SDL_SetRenderDrawColor(gRenderer, 0x00, 0x00, 0x00, 0xFF);

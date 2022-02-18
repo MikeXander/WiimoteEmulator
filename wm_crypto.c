@@ -237,3 +237,12 @@ void ext_encrypt_bytes(const struct ext_crypto_state * state, uint8_t * buffer,
     buffer[i] = (buffer[i] - state->ft[(i + addr_offset) % 8]) ^ state->sb[(i + addr_offset) % 8];
   }
 }
+
+
+void ext_decrypt_bytes(const struct ext_crypto_state * state, uint8_t * buffer,
+  int addr_offset, int length) {
+  for (int i = 0; i < length; i++)
+  {
+    buffer[i] = ((buffer[i] ^ state->sb[i % 8]) + state->ft[i % 8]) % 0x100;
+  }
+}

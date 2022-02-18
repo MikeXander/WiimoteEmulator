@@ -4,6 +4,10 @@ Emulates a Bluetooth Wii controller in software.
 
 ![Raspberry Pi 3 running the emulator in Raspbian](rpi_ss.png)
 
+### What does this fork do?
+  - adds an input visualizer to the wmmitm tool
+  - will add DTM (TAS) playback support in the future
+
 ### Features
 
   - Emulate the Wiimote's many features and extensions
@@ -16,6 +20,8 @@ The following dependencies/packages are required (if not already installed):
   - libdbus-1-dev
   - libglib2.0-dev
   - libsdl1.2-dev
+  - libsdl2-dev
+  - libsdl2-image-dev
 
 Run the build script (in the project directory):
 
