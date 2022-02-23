@@ -11,8 +11,8 @@ LDBUS=`pkg-config --cflags dbus-1` -ldbus-1
 all: wmemulator packedtest wmmitm
 clean:
 	rm -f wmemulator packedtest wmmitm
-wmemulator: wmemulator.c wiimote.c input.c input_sdl.c input_socket.c wm_crypto.c wm_reports.c wm_print.c sdp.c bdaddr.c adapter.c
-	gcc $(CFLAGS) -o wmemulator wmemulator.c wiimote.c input.c input_sdl.c input_socket.c wm_crypto.c wm_reports.c wm_print.c sdp.c bdaddr.c adapter.c $(LBLUETOOTH) -lSDL -lpthread -lm $(LDBUS) -Wall
+wmemulator: wmemulator.c wiimote.c input.c motion.c input_sdl.c input_socket.c wm_crypto.c wm_reports.c wm_print.c sdp.c bdaddr.c adapter.c
+	gcc $(CFLAGS) -o wmemulator wmemulator.c wiimote.c input.c motion.c input_sdl.c input_socket.c wm_crypto.c wm_reports.c wm_print.c sdp.c bdaddr.c adapter.c $(LBLUETOOTH) -lSDL -lpthread -lm $(LDBUS) -
 wmmitm: wmmitm.c wm_print.c sdp.c bdaddr.c adapter.c visualizer.cpp
 	g++ $(CFLAGS) -o wmmitm wmmitm.c wm_print.c sdp.c bdaddr.c adapter.c visualizer.cpp wm_crypto.c $(LBLUETOOTH) -lpthread -lm -lSDL2 -lSDL2_image $(LDBUS) -fpermissive
 packedtest: packedtest.c
