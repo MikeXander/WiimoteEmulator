@@ -10,6 +10,9 @@
 #include <string>
 #include <cstring>
 #include <iostream>
+#include <fstream>
+#include <istream>
+#include <sstream>
 #include <cstdint>
 
 SDL_Window *gWindow = NULL;
@@ -19,10 +22,10 @@ bool closed = false;
 // https://lazyfoo.net/tutorials/SDL/40_texture_manipulation/index.php
 class Texture {
 		SDL_Texture* tex;
-		SDL_PixelFormat* fmt;
 	public:
 		int width, height;
 		Texture(std::string filepath) : tex{nullptr}, width{0}, height{0} {
+			//std::cout << "TEX LOAD " << filepath << std::endl;
 			filepath = "Textures/" + filepath;
 			SDL_Surface* surf = IMG_Load(filepath.c_str());
 			if (surf == nullptr) {
@@ -45,13 +48,24 @@ class Texture {
 			SDL_UnlockTexture(tex);
 			width = formatted->w;
 			height = formatted->h;
-			fmt = formatted->format;
 			SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_ADD);
 			SDL_FreeSurface(formatted);
 		}
+
+		Texture() : tex{nullptr}, width{0}, height{0} {}
+
+		Texture& operator=(Texture&& t) {
+			if (tex) SDL_DestroyTexture(tex);
+			tex = t.tex;
+			width = t.width;
+			height = t.height;
+			return *this;
+		}
 		
 		void render(int x, int y, int R = 0xFF, int G = 0xFF, int B = 0xFF) {
-			SDL_SetRenderDrawColor(gRenderer, R, G, B, 0xFF);
+			if (x < 0 || y < 0) return;
+			//SDL_SetTextureColorMod(tex, R, G, B);
+			//SDL_SetRenderDrawColor(gRenderer, R, G, B, 0xFF);
 			// int x, iny y, SDL_Rect* clip, double angle, SDL_Point* center, SDL_RendererFlip flip
 			SDL_Rect quad = {x, y, width, height};
 			SDL_RenderCopyEx(gRenderer, tex, 0, &quad, 0.0, 0, SDL_FLIP_NONE);
@@ -62,7 +76,7 @@ class Texture {
 			height = new_height;
 		}
 
-		void set_colour(Uint8 R, Uint8 G, Uint8 B) { // also map dark -> transparent
+		void set_colour(Uint8 R, Uint8 G, Uint8 B) {
 			SDL_SetTextureColorMod(tex, R, G, B);
 		}
 		
@@ -74,10 +88,10 @@ class Texture {
 class Button {
 		Texture* pressed;
 		Texture* released;
-		int x, y;
 	public:
+		int x, y;
 		enum Mode{Fill, Negative, Dark};
-		Button(std::string name, Mode m) : pressed{nullptr}, released{nullptr}, x{0}, y{0} {
+		Button(std::string name, Mode m = Mode::Negative) : pressed{nullptr}, released{nullptr}, x{0}, y{0} {
 			if (m == Fill) {
 				pressed = new Texture(name + "-pressed-fill.png");
 			} else if (m == Negative) {
@@ -91,12 +105,12 @@ class Button {
 			released = new Texture(name + "-outline.png");
 		}
 		
-		void press(int R = 0xFF, int G = 0xFF, int B = 0xFF) { 
-			pressed->render(x, y, R, G, B);
+		void press() { 
+			pressed->render(x, y);
 		}
 		
-		void release(int R = 0xFF, int G = 0xFF, int B = 0xFF) {
-			released->render(x, y, R, G, B);
+		void release() {
+			released->render(x, y);
 		}
 
 		void set_location(int new_x, int new_y) {
@@ -108,6 +122,148 @@ class Button {
 			pressed->set_colour(R, G, B);
 			released->set_colour(R, G, B);
 		}
+
+		friend std::ifstream& operator>>(std::ifstream& file, Button& B) {
+			char line[256]; 
+			file.getline(line, 256);
+			std::istringstream input = std::istringstream{line};
+			int x, y, r, g, b;
+			input >> x >> y >> r >> g >> b;
+			B.set_location(x, y);
+			B.set_colour(r, g, b);
+			return file;
+		}
+};
+
+class DPad {
+		Texture outline;
+	public:
+		Texture *directions[4];
+		int x, y;
+		int rotation;
+		DPad() :
+			outline{"d-pad-gate.png"},
+			x{0}, y{0},
+			rotation{0}
+		{
+			directions[0] = new Texture{"d-pad-up.png"};
+			directions[1] = new Texture{"d-pad-right.png"};
+			directions[2] = new Texture{"d-pad-down.png"};
+			directions[3] = new Texture{"d-pad-left.png"};
+		}
+
+		void set_colour(uint8_t R, uint8_t G, uint8_t B) {
+			directions[0]->set_colour(242, 133, 250); // sample numbers for testing
+			directions[1]->set_colour(69, 47, 27);
+			directions[2]->set_colour(0xFF, 0, 0);
+			directions[3]->set_colour(2, 93, 231);
+		}
+
+		void render(bool Up, bool Down, bool Left, bool Right) {
+			outline.render(x, y);
+			//std::cout << "ROT" << rotation << " " << Up << " " << Down << " " << Left << " " << Right << std::endl;
+			if (Up) 	directions[(0 + rotation) % 4]->render(x, y);
+			if (Right) 	directions[(1 + rotation) % 4]->render(x, y);
+			if (Down) 	directions[(2 + rotation) % 4]->render(x, y);
+			if (Left) 	directions[(3 + rotation) % 4]->render(x, y);
+		}
+
+		friend std::ifstream& operator>>(std::ifstream& file, DPad& d) {
+			auto readline = [](std::ifstream& file){
+				char line[256]; 
+				file.getline(line, 256);
+				return std::istringstream{line};
+			};
+			std::istringstream input = readline(file);
+			int x, y, r, g, b;
+			input >> x >> y >> r >> g >> b;
+			d.x = x;
+			d.y = y;
+			d.outline.set_colour(r, g, b);
+			input = readline(file);
+			input >> r;
+			d.rotation = r;
+			for (int i = 0; i < 4; ++i) {
+				input = readline(file);
+				input >> r >> g >> b;
+				d.directions[i]->set_colour(r, g, b);
+			}
+			return file;
+		}
+
+		~DPad() {
+			for (int i = 0; i < 4; ++i) delete directions[i];
+		}
+};
+
+class Joystick {
+		Texture gate;
+		bool enable_bounding_box;
+		Uint8 stick_r, stick_g, stick_b;
+	public:
+		int x, y;
+		enum Style {Line, Stick}; // ToDo: option to not use a line
+
+		Joystick() :
+			gate{"joystick-gate.png"},
+			enable_bounding_box{true}
+		{
+
+		}
+
+		void render(uint8_t jx, uint8_t jy) {
+			if (x < 0 || y < 0) return;
+			if (enable_bounding_box) {
+				SDL_Rect r = {x, y, gate.width, gate.height};
+				SDL_SetRenderDrawColor(gRenderer, 0xFF, 0xFF, 0xFF, 0x60);
+				SDL_RenderDrawRect(gRenderer, &r);
+			}
+			gate.render(x, y);
+			DrawStick((jx-127)/2, (128-jy)/2, 3);
+		}
+
+		friend std::ifstream& operator>>(std::ifstream& file, Joystick& J) {
+			auto readline = [](std::ifstream& file){
+				char line[256]; 
+				file.getline(line, 256);
+				return std::istringstream{line};
+			};
+			std::istringstream input = readline(file);
+			int x, y, r, g, b;
+			input >> x >> y >> r >> g >> b;
+			J.x = x;
+			J.y = y;
+			J.gate.set_colour(r, g, b);
+			input = readline(file);
+			input >> r >> g >> b;
+			J.stick_r = r;
+			J.stick_g = g;
+			J.stick_b = b;
+			input = readline(file);
+			input >> x;
+			J.enable_bounding_box = x > 0;
+			return file;
+		}
+
+	private:
+		void DrawStick(int jx, int jy, int width) { // expects numbers from -127 to 128
+			if (width < 1) return;
+			int cx = x + gate.width/2; // center
+			int cy = y + gate.height/2;
+			SDL_SetRenderDrawColor(gRenderer, stick_r, stick_g, stick_b, 0xFF);
+			SDL_RenderDrawLine(gRenderer,cx,cy,cx+jx,cy+jy);
+			for (int i = 1; i < width; ++i) {
+				// To speed up: determine quadrant of (jx,jy) and only draw lines
+				// along a diagonal in the opposite quadrant
+				// ToDo: keep within border
+				for (int j = i; j >= 0; --j) { // draw diagonals around (cx,cy)
+					SDL_RenderDrawLine(gRenderer,cx+j,cy-i+j,cx+jx+j,cy+jy-i+j); // top right
+					SDL_RenderDrawLine(gRenderer,cx-j,cy+i-j,cx+jx-j,cy+jy+i-j); // bottom left
+					SDL_RenderDrawLine(gRenderer,cx+j,cy+i-j,cx+jx+j,cy+jy+i-j); // bottom right
+					SDL_RenderDrawLine(gRenderer,cx-j,cy-i+j,cx+jx-j,cy+jy-i+j); // top left
+				}
+			}
+		}
 };
 
 struct visuals {
@@ -117,6 +273,11 @@ struct visuals {
     bool DOWN;
     bool LEFT;
     bool RIGHT;
+	bool ONE;
+	bool TWO;
+	bool PLUS;
+	bool MINUS;
+	bool HOME;
     int accel[3];
     int ir[2];
     
@@ -124,84 +285,121 @@ struct visuals {
     bool C;
     bool Z;
     int stick[2];
+	visuals() {}
 };
 
-class WiimoteLayout {
-		Button A, B, C, Z;
-		Texture joystick, dpad, up, down, left, right;
-		int jx, jy, dpx, dpy;
-	public:
-		visuals v;
+struct Layout {
+	visuals v;
+	const uint8_t type;
+	int background[3];
+	Layout(const uint8_t type) : v{}, type{type} {}
+	virtual void Draw() {}
+};
 
-		WiimoteLayout() :
-			A{"a", Button::Mode::Negative}, // need to give everything positions
-			B{"b", Button::Mode::Negative}, // load positions from file
-			C{"c", Button::Mode::Negative}, // be able to switch layouts
-			Z{"z", Button::Mode::Negative},
-			joystick{"joystick-gate.png"},
-			dpad{"d-pad-gate.png"},
-			up{"d-pad-up.png"},
-			down{"d-pad-down.png"},
-			left{"d-pad-left.png"},
-			right{"d-pad-right.png"},
-			v{}
+class WiimoteLayout : public Layout {
+	Button A, B, One, Two, Plus, Minus, Home;
+	DPad d;
+	public:
+		WiimoteLayout(uint8_t type) :
+			Layout{type},
+			A{"a", Button::Mode::Negative},
+			B{"b", Button::Mode::Negative},
+			One{"1", Button::Mode::Fill}, // TODO: add these textures
+			Two{"2", Button::Mode::Fill}, // try to abstract it all more (this is repeated in nunchuk layout)
+			Plus{"+", Button::Mode::Fill},
+			Minus{"-", Button::Mode::Fill},
+			Home{"home", Button::Mode::Fill},
+			d{}
 		{
-			A.set_location(290, 20);
-			B.set_location(390, 20);
-			C.set_location(180, 52);
-			Z.set_location(180, 0);
-			jx = 50;
-			jy = 60;
-			dpx = 180;
-			dpy = 125;
-			A.set_colour(100, 255, 255); // 100,255,255 P1 light blue
-			B.set_colour(255,220,0); 
+			std::cout << "New Layout: Wiimote" << std::endl;
+			std::ifstream config{"./config/wiimote.layout"};
+			if (!config.is_open()) {
+				std::cerr << "Could not load wiimote.layout" << std::endl;
+				return;
+			}
+
+			char line[256]; 
+			config.getline(line, 256);
+			std::istringstream input = std::istringstream{line};
+			input >> background[0] >> background[1] >> background[2];
+			config >> A >> B >> One >> Two >> Plus >> Minus >> Home >> d;
+			config.close();
+		}
+
+		void Draw() override {
+			v.A ? A.press() : A.release();
+			v.B ? B.press() : B.release();
+			v.ONE ? One.press() : One.release();
+			v.TWO ? Two.press() : Two.release();
+			v.PLUS ? Plus.press() : Plus.release();
+			v.MINUS ? Minus.press() : Minus.release();
+			v.HOME ? Home.press() : Home.release();
+			d.render(v.UP, v.DOWN, v.LEFT, v.RIGHT);
+		}
+};
+
+class NunchukLayout : public Layout {
+		Button A, B, One, Two, Plus, Minus, Home, C, Z;
+		DPad d;
+		Joystick j;
+	public:
+
+		NunchukLayout() :
+			Layout{0x37},
+			A{"a", Button::Mode::Negative},
+			B{"b", Button::Mode::Negative},
+			One{"1", Button::Mode::Fill},
+			Two{"2", Button::Mode::Fill},
+			Plus{"+", Button::Mode::Fill},
+			Minus{"-", Button::Mode::Fill},
+			Home{"home", Button::Mode::Fill},
+			C{"c", Button::Mode::Negative},
+			Z{"z", Button::Mode::Negative},
+			d{},
+			j{}
+		{
+			std::cout << "New Layout: Wiimote+Nunchuk" << std::endl;
+			std::ifstream config{"./config/nunchuk.layout"};
+			if (!config.is_open()) {
+				std::cerr << "Could not load nunchuk.layout" << std::endl;
+				return;
+			}
+
+			char line[256]; 
+			config.getline(line, 256);
+			std::istringstream input = std::istringstream{line};
+			input >> background[0] >> background[1] >> background[2];
+			config >> A >> B >> One >> Two >> Plus >> Minus >> Home >> d;
+			config >> C >> Z >> j;
+			config.close();
+
+			// P1 light blue: 100,255,255 
 			// P2 yellow: 255,220,0
 		}
-
-		// center x/y and joystick x/y
-		void DrawStick(int cx, int cy, int jx, int jy, int width) {
-			if (width < 1) return;
-			SDL_SetRenderDrawColor(gRenderer, 0xFF, 0xFF, 0xFF, 0xFF);
-			SDL_RenderDrawLine(gRenderer,cx,cy,cx+jx,cy+jy);
-			for (int i = 1; i < width; ++i) {
-				// To speed up: determine quadrant of (jx,jy) and only draw lines
-				// along a diagonal in the opposite quadrant
-				for (int j = i; j >= 0; --j) { // draw diagonals around (cx,cy)
-					SDL_RenderDrawLine(gRenderer,cx+j,cy-i+j,cx+jx+j,cy+jy-i+j); // top right
-					SDL_RenderDrawLine(gRenderer,cx-j,cy+i-j,cx+jx-j,cy+jy+i-j); // bottom left
-					SDL_RenderDrawLine(gRenderer,cx+j,cy+i-j,cx+jx+j,cy+jy+i-j); // bottom right
-					SDL_RenderDrawLine(gRenderer,cx-j,cy-i+j,cx+jx-j,cy+jy-i+j); // top left
-				}
-			}
-		}
 		
-		void Draw() {
-			if (v.hasNunchuk) {
-				if (v.A) { A.press(); } else { A.release(); }
-				if (v.B) { B.press(); } else { B.release(); }
-				if (v.C) { C.press(); } else { C.release(); }
-				if (v.Z) { Z.press(); } else { Z.release(); }
-				dpad.render(dpx, dpy);
-				if (v.UP) up.render(dpx, dpy);
-				if (v.DOWN) down.render(dpx, dpy);
-				if (v.LEFT) left.render(dpx, dpy);
-				if (v.RIGHT) right.render(dpx, dpy);
-				joystick.render(jx, jy);
-				v.stick[0] = (v.stick[0] - 128)/2;
-				v.stick[1] = (127 - v.stick[1])/2;
-				DrawStick(jx+joystick.width/2,jy+joystick.height/2,v.stick[0],v.stick[1],3);
-			} else {
-				if (v.A) { A.press(); } else { A.release(); }
-				if (v.B) { B.press(); } else { B.release(); }
-			}
+		void Draw() override {
+			if (v.A) { A.press(); } else { A.release(); }
+			if (v.B) { B.press(); } else { B.release(); }
+			if (v.C) { C.press(); } else { C.release(); }
+			if (v.Z) { Z.press(); } else { Z.release(); }
+			j.render(v.stick[0], v.stick[1]);
+			d.render(v.UP, v.DOWN, v.LEFT, v.RIGHT);
 		}
-		
-		void poll() { // reinventing the wheel (masking polls)
-			
-		}
-			
 };
+
+void reload_layout(struct Layout **L, uint8_t type) {
+	struct Layout *L2 = nullptr;
+	if (type == 0x30 || type == 0x31 || type == 0x33) {
+		L2 = new WiimoteLayout(type);
+	} else if (type == 0x37) {
+		L2 = new NunchukLayout();
+	} else {
+		//std:: cerr << "ERROR: Unsupported Report Type " << (int)type << std::endl;
+		return;
+	}
+	delete *L;
+	*L = L2;
+}
 
 void clamp_ir(struct visuals *v) {
     v->ir[0] /= 4;
@@ -219,14 +417,6 @@ void clamp_acc(struct visuals *v) { // impossible to need?
     }
 }
 
-// also flips coords for convenient drawing
-void normalize_joystick(struct visuals *v) {
-	if (v->hasNunchuk) {
-		v->stick[0] = (v->stick[0] - 128)/2;
-		v->stick[1] = (127- v->stick[1])/2;
-	}
-}
-
 // assumes it's given an expected report
 // key length = 16
 void parse_report(struct visuals *v, const uint8_t *buf, struct ext_crypto_state* key) {
@@ -237,9 +427,16 @@ void parse_report(struct visuals *v, const uint8_t *buf, struct ext_crypto_state
     v->UP = buf[2] & 0x08;
     v->B = buf[3] & 0x04;
     v->A = buf[3] & 0x08;
-    v->accel[0] = (buf[4] << 2) + ((buf[2] & 0x60) >> 5);
-    v->accel[1] = (buf[5] << 2) + ((buf[3] & 0x20) >> 4);
-    v->accel[2] = (buf[6] << 2) + ((buf[3] & 0x40) >> 5);
+	v->ONE = buf[3] & 0x02;
+	v->TWO = buf[3] & 0x01;
+	v->PLUS = buf[2] & 0x10;
+	v->MINUS = buf[3] & 0x10;
+	v->HOME = buf[3] & 0x80;
+    if (buf[1] != 0x30) { // other reporting modes dont have this as well...
+		v->accel[0] = (buf[4] << 2) + ((buf[2] & 0x60) >> 5);
+    	v->accel[1] = (buf[5] << 2) + ((buf[3] & 0x20) >> 4);
+    	v->accel[2] = (buf[6] << 2) + ((buf[3] & 0x40) >> 5);
+	}
     v->ir[0] = 0;
     v->ir[1] = 0;
     if (buf[1] == 0x33) {
@@ -271,7 +468,6 @@ void parse_report(struct visuals *v, const uint8_t *buf, struct ext_crypto_state
     }
     clamp_ir(v);
 	clamp_acc(v);
-	//normalize_joystick(v);
 }
 
 // returns true if the report is either nunchuk data or no extension w/IR
@@ -282,7 +478,8 @@ bool is_input_report(const uint8_t * buf, int len) {
         buf[0] == 0xA1 &&
         (
             (len == 0x17 && buf[1] == 0x37) ||
-            (len == 0x13 && buf[1] == 0x33)
+            (len == 0x13 && buf[1] == 0x33) ||
+			(buf[1] == 0x30 || buf[1] == 0x31 || buf[1] == 0x33) // wiimote types
         )
     );/* {
     	return true;
@@ -388,21 +585,21 @@ void visualize_inputs_console(const uint8_t *buf, int len) {//, const unit8_t *k
     print_inputs(&v);
 }
 
-WiimoteLayout *wm = nullptr;
+Layout *L = nullptr;
 
 int init_visualizer(void) {
 	SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO);
 	SDL_CreateWindowAndRenderer(550, 250, 0, &gWindow, &gRenderer);
 	SDL_SetRenderDrawBlendMode(gRenderer, SDL_BLENDMODE_ADD);
 	IMG_Init(IMG_INIT_PNG);
-	wm = new WiimoteLayout();
+	L = new Layout(0x0);
 	return 1;
 }
 
 void exit_visualizer() {
 	if (closed) return;
 	closed = 1;
-	delete wm;
+	delete L;
 	IMG_Quit();
 	SDL_DestroyRenderer(gRenderer);
 	SDL_DestroyWindow(gWindow);
@@ -425,38 +622,42 @@ void all_on(struct visuals* v) {
     v->hasNunchuk = true;
     v->C = true;
     v->Z = true;
-    v->stick[0] = 0;
+    v->stick[0] = 255;
     v->stick[1] = 255;
 	clamp_acc(v);
 	clamp_ir(v);
-	normalize_joystick(v);
 }
 
 void visualize_inputs(const uint8_t *buf, int len) {
-	if (closed) return;
+	if (closed || len < 2) return;
 	SDL_Event event;
-	if (SDL_PollEvent(&event) && event.type == SDL_QUIT) {
-		return exit_visualizer();
+	if (SDL_PollEvent(&event)) {
+		if (event.type == SDL_QUIT) {
+			return exit_visualizer();
+		} else if (event.type = SDL_KEYDOWN && event.key.keysym.mod & KMOD_CTRL && event.key.keysym.sym == SDLK_r) {
+			reload_layout(&L, buf[1]);
+		}
 	}
-	// change rendered textures depending on changes in input
-	//SDL_RenderCopy(gRenderer, texture, NULL, NULL);
-
-	visualize_inputs_console(buf, len);
-	if (is_input_report(buf, len)) parse_report(&wm->v, buf, &decrypt_state);
-	//all_on(&wm->v);
-
-	SDL_SetRenderDrawColor(gRenderer, 0x00, 0x00, 0x00, 0xFF);
+	if (buf[1] != L->type) reload_layout(&L, buf[1]);
+	//visualize_inputs_console(buf, len);
+	if (is_input_report(buf, len)) parse_report(&L->v, buf, &decrypt_state);
+#ifdef VISTEST
+	all_on(&L->v);
+#endif
+	SDL_SetRenderDrawColor(gRenderer, L->background[0], L->background[1], L->background[2], 0xFF);
 	SDL_RenderClear(gRenderer);
-
-	wm->Draw();
+	L->Draw();
 	SDL_RenderPresent(gRenderer);
 }
 
-/*int main(void) {
+#ifdef VISTEST
+int main(void) {
 	init_visualizer();
+	const uint8_t sample_buf[8] = {0xA1, 0x31, 0x04, 0x02, 0x80, 0x80, 0x9A, 0x07};
 	while (!closed) {
-		visualize_inputs(nullptr, 0);
+		visualize_inputs(sample_buf, 8);
 	}
 	exit_visualizer();
-}*/
+}
+#endif
 

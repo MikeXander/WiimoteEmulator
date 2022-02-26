@@ -439,7 +439,7 @@ int main(int argc, char *argv[])
       }
       else
       {
-        graceful_disconnect(&host_bdaddr);
+        //graceful_disconnect(&host_bdaddr);
       }
     }
 

@@ -1,0 +1,14 @@
+0 0 0                   Background: RGB
+100 1 100 255 255       A: xyRGB
+100 100 255 255 255     B: xyRGB
+175 1 255 255 255       1: xyRGB
+225 1 255 255 255       2: xyRGB
+-1 -1 255 255 255       +: xyRGB
+-1 -1 255 255 255       -: xyRGB
+-1 -1 255 255 255       HOME: xyRGB
+1 1 255 255 255         DPAD: xyRGB
+3                       DPAD: rotation
+255 255 255             UP: RGB
+255 255 255             RIGHT: RGB
+255 255 255             DOWN: RGB
+255 255 255             LEFT: RGB
