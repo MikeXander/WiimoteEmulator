@@ -196,6 +196,50 @@ class DPad {
 		}
 };
 
+class IR {
+		int x, y, width;
+		Uint8 box_r, box_g, box_b;
+		Uint8 cursor_r, cursor_g, cursor_b;
+	public:
+		IR() :
+			width{4}
+		{
+		
+		}
+		
+		void render(uint8_t cursor_x, uint8_t cursor_y) {
+			if (x < 0 || y < 0) return;
+			
+			SDL_Rect r = {x, y, 1024, 1024}; // constant width/height
+			SDL_SetRenderDrawColor(gRenderer, box_r, box_g, box_b, 0xFF);
+			SDL_RenderDrawRect(gRenderer, &r);
+			
+			SDL_SetRenderDrawColor(gRenderer, cursor_r, cursor_g, cursor_b, SDL_ALPHA_OPAQUE);
+			//SDL_RenderDrawPoint(gRenderer, cursor_x, cursor_y);
+			for (int i = 0; i < width; ++i) {
+				for (int j = 0; j < width; ++j) {
+					SDL_RenderDrawPoint(gRenderer, x + cursor_x + i, y + cursor_y + j);
+				}
+			}
+						
+		}
+
+		friend std::ifstream& operator>>(std::ifstream& file, IR& ir) {
+			auto readline = [](std::ifstream& file){
+				char line[256]; 
+				file.getline(line, 256);
+				return std::istringstream{line};
+			};
+			std::istringstream input = readline(file);
+			input >> ir.x >> ir.y;
+			input >> ir.box_r >> ir.box_g >> ir.box_b;
+			input = readline(file);
+			input >> ir.cursor_r >> ir.cursor_g >> ir.cursor_b;
+			return file;
+		}
+		
+};
+
 class Joystick {
 		Texture gate;
 		bool enable_bounding_box;
@@ -273,11 +317,11 @@ struct visuals {
     bool DOWN;
     bool LEFT;
     bool RIGHT;
-	bool ONE;
-	bool TWO;
-	bool PLUS;
-	bool MINUS;
-	bool HOME;
+    bool ONE;
+    bool TWO;
+    bool PLUS;
+    bool MINUS;
+    bool HOME;
     int accel[3];
     int ir[2];
     
@@ -285,7 +329,7 @@ struct visuals {
     bool C;
     bool Z;
     int stick[2];
-	visuals() {}
+    visuals() {}
 };
 
 struct Layout {
@@ -299,6 +343,7 @@ struct Layout {
 class WiimoteLayout : public Layout {
 	Button A, B, One, Two, Plus, Minus, Home;
 	DPad d;
+	IR ir;
 	public:
 		WiimoteLayout(uint8_t type) :
 			Layout{type},
@@ -309,7 +354,8 @@ class WiimoteLayout : public Layout {
 			Plus{"+", Button::Mode::Fill},
 			Minus{"-", Button::Mode::Fill},
 			Home{"home", Button::Mode::Fill},
-			d{}
+			d{},
+			ir{}
 		{
 			std::cout << "New Layout: Wiimote" << std::endl;
 			std::ifstream config{"./config/wiimote.layout"};
@@ -322,7 +368,7 @@ class WiimoteLayout : public Layout {
 			config.getline(line, 256);
 			std::istringstream input = std::istringstream{line};
 			input >> background[0] >> background[1] >> background[2];
-			config >> A >> B >> One >> Two >> Plus >> Minus >> Home >> d;
+			config >> A >> B >> One >> Two >> Plus >> Minus >> Home >> d >> ir;
 			config.close();
 		}
 
@@ -335,6 +381,7 @@ class WiimoteLayout : public Layout {
 			v.MINUS ? Minus.press() : Minus.release();
 			v.HOME ? Home.press() : Home.release();
 			d.render(v.UP, v.DOWN, v.LEFT, v.RIGHT);
+			ir.render(v.ir[0], v.ir[1]);
 		}
 };
 
@@ -342,6 +389,7 @@ class NunchukLayout : public Layout {
 		Button A, B, One, Two, Plus, Minus, Home, C, Z;
 		DPad d;
 		Joystick j;
+		IR ir;
 	public:
 
 		NunchukLayout() :
@@ -356,7 +404,8 @@ class NunchukLayout : public Layout {
 			C{"c", Button::Mode::Negative},
 			Z{"z", Button::Mode::Negative},
 			d{},
-			j{}
+			j{},
+			ir{}
 		{
 			std::cout << "New Layout: Wiimote+Nunchuk" << std::endl;
 			std::ifstream config{"./config/nunchuk.layout"};
@@ -370,7 +419,7 @@ class NunchukLayout : public Layout {
 			std::istringstream input = std::istringstream{line};
 			input >> background[0] >> background[1] >> background[2];
 			config >> A >> B >> One >> Two >> Plus >> Minus >> Home >> d;
-			config >> C >> Z >> j;
+			config >> C >> Z >> j >> ir;
 			config.close();
 
 			// P1 light blue: 100,255,255 
@@ -384,6 +433,7 @@ class NunchukLayout : public Layout {
 			if (v.Z) { Z.press(); } else { Z.release(); }
 			j.render(v.stick[0], v.stick[1]);
 			d.render(v.UP, v.DOWN, v.LEFT, v.RIGHT);
+			ir.render(v.ir[0], v.ir[1]);
 		}
 };
 
@@ -441,17 +491,17 @@ void parse_report(struct visuals *v, const uint8_t *buf, struct ext_crypto_state
     v->ir[1] = 0;
     if (buf[1] == 0x33) {
         v->hasNunchuk = false;
-        for (int i = 0; i < 4; i++) { // 12 byte IR
-            v->ir[0] += buf[7 + i * 2] + ((buf[9 + i * 2] & 0x30) << 8);
-            v->ir[1] += buf[8 + i * 2] + ((buf[9 + i * 2] & 0xC0) << 8);
+        for (int i = 0; i < 4; i++) { // 12 byte IR // this is untested (probably broken)
+            v->ir[0] += buf[7 + i * 2] + ((buf[9 + i * 2] & 0x30) << 4);
+            v->ir[1] += buf[8 + i * 2] + ((buf[9 + i * 2] & 0xC0) << 2);
         }
     } else if (buf[1] == 0x37) {
         v->hasNunchuk = true;
-        for (int i = 0; i < 2; i++) { // 10 byte IR
-            v->ir[0] += buf[7 + i * 5] + ((buf[9 + i * 5] & 0x30) << 8);
-            v->ir[1] += buf[8 + i * 5] + ((buf[9 + i * 5] & 0xC0) << 8);
-            v->ir[0] += buf[10 + i * 5] + ((buf[9 + i * 5] & 0x03) << 8);
-            v->ir[1] += buf[11 + i * 5] + ((buf[9 + i * 5] & 0x0C) << 8);
+        for (int i = 7; i <=12; i += 5) { // 10 byte IR, 2 iterations
+            v->ir[0] += buf[i + 0] + ((buf[i + 2] & 0x30) << 4);
+            v->ir[1] += buf[i + 1] + ((buf[i + 2] & 0xC0) << 2);
+            v->ir[0] += buf[i + 3] + ((buf[i + 2] & 0x03) << 8);
+            v->ir[1] += buf[i + 4] + ((buf[i + 2] & 0x0C) << 6);
         }
         // ((data[i] ^ key[8 + i]) + key[i]) % 0x100
         uint8_t ext_data[6] = {0};
@@ -467,7 +517,7 @@ void parse_report(struct visuals *v, const uint8_t *buf, struct ext_crypto_state
         v->C = (decrypted_final & 0x2) == 0;
     }
     clamp_ir(v);
-	clamp_acc(v);
+    clamp_acc(v);
 }
 
 // returns true if the report is either nunchuk data or no extension w/IR
@@ -513,18 +563,18 @@ int state = Uninitialized;
 // https://wiibrew.org/wiki/Wiimote/Protocol#Extension_Controllers
 void store_extension_key(const uint8_t *buf, int len) { // output report (from wii) buf[0]=a2
 	if (len < 1 + 6 + 16) return; // a2 16 MM FF FF FF SS + key
-	if (state == Uninitialized) printf("Out Report: %02X %02X %02X %02X %02X %02X...\n", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+	//if (state == Uninitialized) printf("Out Report: %02X %02X %02X %02X %02X %02X...\n", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
 	if (buf[1] != 0x16) return; // write memory register
 	if (buf[2] != 0x04) return; // enable write data
 	if (buf[3] != 0xA4 || buf[4] != 0x00) return; // register choice
 	if (state == Uninitialized) {
 		if (buf[5] == 0xF0 && buf[6] == 0x01 && buf[7] == 0xAA) {
 			state = EncryptionEnabled;
-			printf("ENABLE ENCRYPTION\n");
+			//printf("ENABLE ENCRYPTION\n");
 		} else if (buf[5] == 0x40 && buf[6] == 16) { // idk if the wii ever does this?
 			memcpy(extension_decryption_key, buf+7, sizeof(uint8_t)*16);
-			for (int i = 0; i < 16; ++i) printf("%02X ", extension_decryption_key[i]);
-			printf("<- KEY COMPLETE\n");
+			//for (int i = 0; i < 16; ++i) printf("%02X ", extension_decryption_key[i]);
+			//printf("<- KEY COMPLETE\n");
 			ext_generate_tables(&decrypt_state, buf+7);
 		}
 	} else if (state == EncryptionEnabled) {
@@ -536,7 +586,7 @@ void store_extension_key(const uint8_t *buf, int len) { // output report (from w
 			temp_key[4] = buf[11];
 			temp_key[5] = buf[12];
 			state = Block1;
-			printf("KEY BLOCK1\n");
+			//printf("KEY BLOCK1\n");
 		} else {
 			state = Uninitialized;
 		}
@@ -549,7 +599,7 @@ void store_extension_key(const uint8_t *buf, int len) { // output report (from w
 			temp_key[10] = buf[11];
 			temp_key[11] = buf[12];
 			state = Block2;
-			printf("KEY BLOCK2\n");
+			//printf("KEY BLOCK2\n");
 		} else {
 			state = Uninitialized;
 		}
@@ -561,8 +611,8 @@ void store_extension_key(const uint8_t *buf, int len) { // output report (from w
 			extension_decryption_key[14] = buf[9];
 			extension_decryption_key[15] = buf[10];
 			state = Uninitialized; // allow it to check again
-			for (int i = 0; i < 16; ++i) printf("%02X ", extension_decryption_key[i]);
-			printf("<- KEY COMPLETE\n");
+			//for (int i = 0; i < 16; ++i) printf("%02X ", extension_decryption_key[i]);
+			//printf("<- KEY COMPLETE\n");
 			ext_generate_tables(&decrypt_state, extension_decryption_key);
 		}
 	}
@@ -624,8 +674,8 @@ void all_on(struct visuals* v) {
     v->Z = true;
     v->stick[0] = 255;
     v->stick[1] = 255;
-	clamp_acc(v);
-	clamp_ir(v);
+    clamp_acc(v);
+    clamp_ir(v);
 }
 
 void visualize_inputs(const uint8_t *buf, int len) {

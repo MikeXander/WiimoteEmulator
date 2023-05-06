@@ -13,6 +13,8 @@
 #include <string.h>
 #include <poll.h>
 #include <pthread.h>
+#include <string.h>
+#include <chrono> // C++ requirement
 
 #include "sdp.h"
 #include "adapter.h"
@@ -267,33 +269,70 @@ int main(int argc, char *argv[])
   ssize_t in_buf_len = 0;
   unsigned char out_buf[256];
   ssize_t out_buf_len = 0;
+  unsigned char saved_buf[256];
+  ssize_t saved_buf_len = 0;
 
   int failure = 0;
 
-  int enable_report_printing = 0;
+  bool enable_report_printing = false;
   show_reports = 1;
+  
+  int output_max_delay = 2500;
+  int poll_retval = 0;
+  bool wm_datatype_changed = true;
+  auto start = std::chrono::steady_clock::now();
 
-  if (argc > 1)
+  bool bad_arg = false;
+  for (int i = 1; i < argc; ++i)
   {
-    if (bachk(argv[1]) < 0)
+    if (!(strcmp(argv[i], "-wii")))
     {
-      printf("usage: %s <wiimote-bdaddr> <wii-bdaddr>\n", *argv);
-      return 1;
-    }
-
-    str2ba(argv[1], &wiimote_bdaddr);
-
-    if (argc > 2)
-    {
-      if (bachk(argv[2]) < 0)
+      i++;
+      if (bachk(argv[i]) < 0)
       {
-        printf("usage: %s <wiimote-bdaddr> <wii-bdaddr>\n", *argv);
-        return 1;
+      	bad_arg = true;
       }
-
-      str2ba(argv[2], &host_bdaddr);
-      has_host = 1;
+      else
+      {
+      	str2ba(argv[2], &host_bdaddr);
+        has_host = 1;
+      }
     }
+    else if (!strcmp(argv[i], "-wm"))
+    {
+      i++;
+      if (bachk(argv[i]) < 0)
+      {
+      	bad_arg = true;
+      }
+      else
+      {
+        str2ba(argv[i], &wiimote_bdaddr);
+      }
+    }
+    else if (!strcmp(argv[i], "-d"))
+    {
+      i++;
+      int d = atoi(argv[i]);
+      if (d == 0)
+      {
+        bad_arg = true;
+        printf("A delay of %d micro sec will be used\n", output_max_delay);
+      }
+      else
+      {
+        output_max_delay = d;
+      }
+    }
+    else if (!strcmp(argv[i], "-debug"))
+    {
+      enable_report_printing = true;
+    }
+  }
+    
+  if (bad_arg)
+  {
+    printf("Some arguments ignored. Proper usage: %s -wm <wiimote-bdaddr> -wii <wii-bdaddr> -d <max forwarding delay> -debug\n", *argv);
   }
 
   //set up unload signals
@@ -406,6 +445,7 @@ int main(int argc, char *argv[])
       pfd[2].events = POLLIN;
 
       pfd[3].events = POLLIN | POLLOUT;
+      poll_retval = poll(pfd, 4, 5);
     }
     else
     {
@@ -413,18 +453,24 @@ int main(int argc, char *argv[])
       pfd[5].events = POLLIN;
       pfd[6].events = POLLIN;
       pfd[7].events = POLLIN;
+      
+      auto now = std::chrono::steady_clock::now();
+      int micro_sec = (int)std::chrono::duration_cast<std::chrono::microseconds>(now - start).count(); // time between POLLOUT
 
-      if (in_buf_len > 0)
+      if (in_buf_len > 0 || (saved_buf_len > 0 && !wm_datatype_changed && micro_sec >= output_max_delay))
       {
         pfd[5].events |= POLLOUT;
+        start = now;
       }
       if (out_buf_len > 0)
       {
         pfd[7].events |= POLLOUT;
       }
+      // polling only the wiimote or only the console speeds it up a negligible amount
+      poll_retval = poll(pfd + 4, 4, 0); // poll both
     }
 
-    if (poll(pfd, 8, 10) < 0)
+    if (poll_retval < 0)
     {
       printf("poll error\n");
       break;
@@ -432,22 +478,22 @@ int main(int argc, char *argv[])
 
     if (pfd[4].revents & POLLERR)
     {
-      printf("error on ctrl psm\n");
+      printf("error on wii ctrl psm\n");
       break;
     }
     if (pfd[5].revents & POLLERR)
     {
-      printf("error on data psm\n");
+      printf("error on wii data psm\n");
       break;
     }
     if (pfd[6].revents & POLLERR)
     {
-      printf("error on ctrl psm\n");
+      printf("error on wm ctrl psm\n");
       break;
     }
     if (pfd[7].revents & POLLERR)
     {
-      printf("error on data psm\n");
+      printf("error on wm data psm\n");
       break;
     }
 
@@ -509,6 +555,9 @@ int main(int argc, char *argv[])
       {
         out_buf_len = recv(int_fd, out_buf, 32, MSG_DONTWAIT);
         store_extension_key(out_buf, out_buf_len);
+        /*if (out_buf[1] == 0x12) { // not sure why, but when this is set, you can't spam the console right away
+          cts_reporting = out_buf[2] & 0x04 ? CTS_REPORTING_ENABLED : 0;
+        }*/
         if (enable_report_printing)
         {
           print_report(out_buf, out_buf_len);
@@ -516,11 +565,10 @@ int main(int argc, char *argv[])
       }
       if (pfd[5].revents & POLLOUT)
       {
-        if (in_buf_len > 0)
+        if (saved_buf_len > 0)
         {
-          send(int_fd, in_buf, in_buf_len, MSG_DONTWAIT);
-          //printf("%02X %02X int_fd\n", in_buf[0], in_buf[1]);
-          in_buf_len = 0;
+          send(int_fd, saved_buf, saved_buf_len, MSG_DONTWAIT);
+          in_buf_len = 0; // flag for first send after receiving new data from wiimote
         }
 
         failure = 0;
@@ -540,8 +588,14 @@ int main(int argc, char *argv[])
 
     if (in_buf_len == 0 && (pfd[7].revents & POLLIN))
     {
-      in_buf_len = recv(wm_int_fd, in_buf, 32, MSG_DONTWAIT);
+      in_buf_len = recv(wm_int_fd, in_buf, 32, MSG_DONTWAIT); // only 23 needed for any wiimote extension?
+      // very crudely detect when it's okay to spam the console with reports
+      wm_datatype_changed = in_buf[1] != 0x37 || in_buf[1] != saved_buf[1] || in_buf_len != saved_buf_len;
+      saved_buf_len = in_buf_len;
+      memcpy(saved_buf, in_buf, in_buf_len);
+      
       visualize_inputs(in_buf, in_buf_len);
+      
       if (enable_report_printing)
       {
         print_report(in_buf, in_buf_len);
@@ -566,9 +620,9 @@ int main(int argc, char *argv[])
       }
     }
   }
-  exit_visualizer();
 
   printf("cleaning up...\n");
+  exit_visualizer();
 
   disconnect_from_host();
   disconnect_from_wiimote();

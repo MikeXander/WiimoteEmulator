@@ -17,3 +17,5 @@
 50 60 255 255 255       Joystick: xyRGB
 255 255 255             Joystick: stick RGB
 1                       Joystick: enable boundning box
+-1 -1 255 255 255       IR: bounding box xyRGB
+255 255 255             IR cursor: RGB

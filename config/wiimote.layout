@@ -12,3 +12,5 @@
 255 255 255             RIGHT: RGB
 255 255 255             DOWN: RGB
 255 255 255             LEFT: RGB
+-1 -1 255 255 255       IR: bounding box xyRGB
+255 255 255             IR cursor: RGB
