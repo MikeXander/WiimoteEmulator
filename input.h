@@ -18,7 +18,7 @@ enum input_emulator_control
 {
     INPUT_EMULATOR_CONTROL_QUIT, // Quits the emulator
     INPUT_EMULATOR_CONTROL_POWER_OFF, // Powers off host
-
+    INPUT_EMULATOR_PLAYBACK_TAS,
     INPUT_EMULATOR_CONTROL_TOGGLE_REPORTS,
 };
 

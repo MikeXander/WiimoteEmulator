@@ -34,6 +34,8 @@ int sock_sdp_fd, sock_ctrl_fd, sock_int_fd;
 
 static int is_connected = 0;
 
+static bool playback_tas = false;
+
 //signal handler to break out of main loop
 static int running = 1;
 void sig_handler(int sig)
@@ -429,8 +431,20 @@ int main(int argc, char *argv[])
       }
     }
 
-    input_result = input_update(&state, &input_source);
-    if (input_result)
+    if (playback_tas) // skip processing other input (speedup)
+    { // possibly dont skip to allow for ctrl+c exit (?)
+      input_result = 0;
+    }
+    else
+    {
+      input_result = input_update(&state, &input_source);
+    }
+
+    if (input_result == -3)
+    {
+      playback_tas = true;
+    }
+    else if (input_result)
     {
       running = 0;
       if (input_result == -2)
@@ -447,11 +461,22 @@ int main(int argc, char *argv[])
     {
       if (pfd[5].revents & POLLOUT)
       {
-        len = generate_report(&state, buf);
+        if (playback_tas)
+        {
+          len = next_dtm_report(&state, buf);
+        }
+        else
+        {
+          len = generate_report(&state, buf);
+        }
         if (len > 0)
         {
           print_report(buf, len);
           send(int_fd, buf, len, MSG_DONTWAIT);
+        }
+        else
+        {
+          playback_tas = false;
         }
 
         failure = 0;

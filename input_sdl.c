@@ -216,6 +216,12 @@ static bool input_sdl_poll_event(struct input_event *out_event)
         out_event->button_event.button = INPUT_BUTTON_NUNCHUK_Z;
       }
       break;
+    case SDLK_t:
+      if (shift && event.type == SDL_KEYDOWN) {
+        out_event->type = INPUT_EVENT_TYPE_EMULATOR_CONTROL;
+        out_event->emulator_control_event.control = INPUT_EMULATOR_PLAYBACK_TAS;
+      }
+      break;
     case SDLK_1:
       out_event->button_event.button = INPUT_BUTTON_WIIMOTE_1;
       break;

@@ -37,6 +37,8 @@ int input_update(struct wiimote_state *state, struct input_source const * source
       case INPUT_EMULATOR_CONTROL_TOGGLE_REPORTS:
         show_reports = (show_reports + 1) % 2;
         break;
+      case INPUT_EMULATOR_PLAYBACK_TAS:
+        return -3;
       }
       break;
     case INPUT_EVENT_TYPE_HOTPLUG:

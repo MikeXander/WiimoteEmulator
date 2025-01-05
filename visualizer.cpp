@@ -90,20 +90,11 @@ class Button {
 		Texture* released;
 	public:
 		int x, y;
-		enum Mode{Fill, Negative, Dark};
-		Button(std::string name, Mode m = Mode::Negative) : pressed{nullptr}, released{nullptr}, x{0}, y{0} {
-			if (m == Fill) {
-				pressed = new Texture(name + "-pressed-fill.png");
-			} else if (m == Negative) {
-				pressed = new Texture(name + "-pressed-negative.png");
-			} else if (m == Dark) {
-				pressed = new Texture(name + "-pressed-dark.png");			
-			} else {
-				std::cerr << "Invalid colour mode loading " << name << std::endl;
-				return;
-			}
-			released = new Texture(name + "-outline.png");
-		}
+		Button(std::string name) : 
+			pressed{new Texture(name + "-pressed.png")}, 
+			released{new Texture(name + "-released.png")},
+			x{0},
+			y{0} {}
 		
 		void press() { 
 			pressed->render(x, y);
@@ -248,7 +239,7 @@ class Joystick {
 		int x, y;
 		enum Style {Line, Stick}; // ToDo: option to not use a line
 
-		Joystick() :
+		Joystick() : // ADD THICKNESS????????? =============================================================
 			gate{"joystick-gate.png"},
 			enable_bounding_box{true}
 		{
@@ -333,28 +324,28 @@ struct visuals {
 };
 
 struct Layout {
-	visuals v;
+	visuals data;
 	const uint8_t type;
 	int background[3];
-	Layout(const uint8_t type) : v{}, type{type} {}
+	Layout(const uint8_t type) : data{}, type{type} {}
 	virtual void Draw() {}
 };
 
 class WiimoteLayout : public Layout {
 	Button A, B, One, Two, Plus, Minus, Home;
-	DPad d;
+	DPad dpad;
 	IR ir;
 	public:
 		WiimoteLayout(uint8_t type) :
 			Layout{type},
-			A{"a", Button::Mode::Negative},
-			B{"b", Button::Mode::Negative},
-			One{"1", Button::Mode::Fill}, // TODO: add these textures
-			Two{"2", Button::Mode::Fill}, // try to abstract it all more (this is repeated in nunchuk layout)
-			Plus{"+", Button::Mode::Fill},
-			Minus{"-", Button::Mode::Fill},
-			Home{"home", Button::Mode::Fill},
-			d{},
+			A{"A"},
+			B{"B"},
+			One{"1"},
+			Two{"2"},
+			Plus{"+"},
+			Minus{"-"},
+			Home{"HOME"},
+			dpad{},
 			ir{}
 		{
 			std::cout << "New Layout: Wiimote" << std::endl;
@@ -368,43 +359,43 @@ class WiimoteLayout : public Layout {
 			config.getline(line, 256);
 			std::istringstream input = std::istringstream{line};
 			input >> background[0] >> background[1] >> background[2];
-			config >> A >> B >> One >> Two >> Plus >> Minus >> Home >> d >> ir;
+			config >> A >> B >> One >> Two >> Plus >> Minus >> Home >> dpad >> ir;
 			config.close();
 		}
 
 		void Draw() override {
-			v.A ? A.press() : A.release();
-			v.B ? B.press() : B.release();
-			v.ONE ? One.press() : One.release();
-			v.TWO ? Two.press() : Two.release();
-			v.PLUS ? Plus.press() : Plus.release();
-			v.MINUS ? Minus.press() : Minus.release();
-			v.HOME ? Home.press() : Home.release();
-			d.render(v.UP, v.DOWN, v.LEFT, v.RIGHT);
-			ir.render(v.ir[0], v.ir[1]);
+			if (data.A) { A.press(); } else { A.release(); }
+			if (data.B) { B.press(); } else { B.release(); }
+			if (data.ONE) { One.press(); } else { One.release(); }
+			if (data.TWO) { Two.press(); } else { Two.release(); }
+			if (data.PLUS) { Plus.press(); } else { Plus.release(); }
+			if (data.MINUS) { Minus.press(); } else { Minus.release(); }
+			if (data.HOME) { Home.press(); } else { Home.release(); }
+			dpad.render(data.UP, data.DOWN, data.LEFT, data.RIGHT);
+			ir.render(data.ir[0], data.ir[1]);
 		}
 };
 
 class NunchukLayout : public Layout {
 		Button A, B, One, Two, Plus, Minus, Home, C, Z;
-		DPad d;
-		Joystick j;
+		DPad dpad;
+		Joystick stick;
 		IR ir;
 	public:
 
 		NunchukLayout() :
 			Layout{0x37},
-			A{"a", Button::Mode::Negative},
-			B{"b", Button::Mode::Negative},
-			One{"1", Button::Mode::Fill},
-			Two{"2", Button::Mode::Fill},
-			Plus{"+", Button::Mode::Fill},
-			Minus{"-", Button::Mode::Fill},
-			Home{"home", Button::Mode::Fill},
-			C{"c", Button::Mode::Negative},
-			Z{"z", Button::Mode::Negative},
-			d{},
-			j{},
+			A{"A"},
+			B{"B"},
+			One{"1"},
+			Two{"2"},
+			Plus{"+"},
+			Minus{"-"},
+			Home{"HOME"},
+			C{"C"},
+			Z{"Z"},
+			dpad{},
+			stick{},
 			ir{}
 		{
 			std::cout << "New Layout: Wiimote+Nunchuk" << std::endl;
@@ -418,8 +409,8 @@ class NunchukLayout : public Layout {
 			config.getline(line, 256);
 			std::istringstream input = std::istringstream{line};
 			input >> background[0] >> background[1] >> background[2];
-			config >> A >> B >> One >> Two >> Plus >> Minus >> Home >> d;
-			config >> C >> Z >> j >> ir;
+			config >> A >> B >> One >> Two >> Plus >> Minus >> Home >> dpad;
+			config >> C >> Z >> stick >> ir;
 			config.close();
 
 			// P1 light blue: 100,255,255 
@@ -427,13 +418,13 @@ class NunchukLayout : public Layout {
 		}
 		
 		void Draw() override {
-			if (v.A) { A.press(); } else { A.release(); }
-			if (v.B) { B.press(); } else { B.release(); }
-			if (v.C) { C.press(); } else { C.release(); }
-			if (v.Z) { Z.press(); } else { Z.release(); }
-			j.render(v.stick[0], v.stick[1]);
-			d.render(v.UP, v.DOWN, v.LEFT, v.RIGHT);
-			ir.render(v.ir[0], v.ir[1]);
+			if (data.A) { A.press(); } else { A.release(); }
+			if (data.B) { B.press(); } else { B.release(); }
+			if (data.C) { C.press(); } else { C.release(); }
+			if (data.Z) { Z.press(); } else { Z.release(); }
+			stick.render(data.stick[0], data.stick[1]);
+			dpad.render(data.UP, data.DOWN, data.LEFT, data.RIGHT);
+			ir.render(data.ir[0], data.ir[1]);
 		}
 };
 
@@ -690,7 +681,7 @@ void visualize_inputs(const uint8_t *buf, int len) {
 	}
 	if (buf[1] != L->type) reload_layout(&L, buf[1]);
 	//visualize_inputs_console(buf, len);
-	if (is_input_report(buf, len)) parse_report(&L->v, buf, &decrypt_state);
+	if (is_input_report(buf, len)) parse_report(&L->data, buf, &decrypt_state);
 #ifdef VISTEST
 	all_on(&L->v);
 #endif
